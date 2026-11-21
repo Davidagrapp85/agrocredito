@@ -21,7 +21,11 @@ import geopandas as gpd
 from shapely.geometry import Point, LineString
 
 # ── Parámetros ────────────────────────────────────────────────────────────────
-OVERPASS_URL        = "https://overpass-api.de/api/interpreter"
+OVERPASS_URLS       = (
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+    "https://overpass.private.coffee/api/interpreter",
+)
 OSRM_URL            = "http://router.project-osrm.org/route/v1/driving"
 
 RADIO_BUSQUEDA_KM   = 80
@@ -36,25 +40,33 @@ HIGHWAY_TYPES = "motorway|trunk|primary|secondary|tertiary|unclassified|resident
 # ── Helper Overpass con reintentos ────────────────────────────────────────────
 
 def _overpass_get(query: str) -> list:
+    """Consulta Overpass rotando entre servidores públicos.
+
+    Los servidores públicos fallan con frecuencia (429/5xx). Se prueba cada
+    servidor en orden y se reintenta con espera exponencial. Si todos fallan,
+    se lanza RuntimeError para que la app muestre el indicador como
+    no disponible en lugar de caerse.
+    """
     headers = {
         "User-Agent": "AgroCredito/1.0",
         "Accept":     "application/json",
     }
+    ultimo_error = None
     for intento in range(REINTENTOS_OVERPASS):
-        try:
-            resp = requests.get(OVERPASS_URL, params={"data": query},
-                                headers=headers, timeout=90, verify=False)
-        except requests.exceptions.Timeout:
-            espera = PAUSA_OVERPASS_SEG * (2 ** intento)
-            time.sleep(espera)
-            continue
-        if resp.status_code in (429, 504):
-            espera = PAUSA_OVERPASS_SEG * (2 ** intento)
-            time.sleep(espera)
-            continue
-        resp.raise_for_status()
-        return resp.json().get("elements", [])
-    raise RuntimeError("Overpass: límite de reintentos alcanzado (429/504).")
+        for url in OVERPASS_URLS:
+            try:
+                resp = requests.get(url, params={"data": query},
+                                    headers=headers, timeout=60)
+            except requests.exceptions.RequestException as e:
+                ultimo_error = e
+                continue
+            if resp.status_code == 429 or resp.status_code >= 500:
+                ultimo_error = f"{url} → HTTP {resp.status_code}"
+                continue
+            resp.raise_for_status()
+            return resp.json().get("elements", [])
+        time.sleep(PAUSA_OVERPASS_SEG * (2 ** intento))
+    raise RuntimeError(f"Overpass no disponible: {ultimo_error}")
 
 
 # ════════════════════════════════════════════════════════════════════════════════

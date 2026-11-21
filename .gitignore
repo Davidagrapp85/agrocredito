@@ -23,3 +23,6 @@ db/
 
 # Datos locales / temporales
 *.log
+
+# Local de Claude Code
+.claude/

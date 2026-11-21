@@ -3165,8 +3165,16 @@ with tab_validacion:
         c_lat, c_lon = _centroid.y, _centroid.x
 
         with st.spinner("Calculando distancias de infraestructura vía OSM / OSRM …"):
-            infra_centro = _get_distancia_centro_cached(c_lat, c_lon)
-            infra_via    = _get_distancia_via_cached(c_lat, c_lon)
+            # Si OSM/OSRM no responde, el indicador queda "no disponible"
+            # (None) y la app sigue; las excepciones no se guardan en caché.
+            try:
+                infra_centro = _get_distancia_centro_cached(c_lat, c_lon)
+            except Exception:
+                infra_centro = None
+            try:
+                infra_via = _get_distancia_via_cached(c_lat, c_lon)
+            except Exception:
+                infra_via = None
 
         # ── Semáforos por indicador y global (peor de los 3) ──────────
         _COLOR_RANK = {"verde": 0, "naranja": 1, "rojo": 2}

@@ -22,7 +22,18 @@ except ImportError:
     DB_LIBS_OK = False
 
 # ── Configuración ─────────────────────────────────────────────────────────────
-USE_REAL_DB = True
+def _db_url_configured() -> bool:
+    """Usa la BD real solo si hay DATABASE_URL; si no, modo demo."""
+    try:
+        import streamlit as st
+        if st.secrets.get("DATABASE_URL"):
+            return True
+    except Exception:
+        pass
+    return bool(os.environ.get("DATABASE_URL"))
+
+
+USE_REAL_DB = _db_url_configured()
 
 # ── Conexión ──────────────────────────────────────────────────────────────────
 
