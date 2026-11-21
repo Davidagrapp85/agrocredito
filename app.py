@@ -566,8 +566,11 @@ def _add_predio(m, gdf):
     ).add_to(m)
 
 def _fit(m, gdf):
-    b = gdf.geometry.iloc[0].bounds
-    m.fit_bounds([[b[1],b[0]],[b[3],b[2]]])
+    # Centra con zoom calculado en vez de fit_bounds: Streamlit dibuja las
+    # pestañas ocultas con tamaño 0 y fit_bounds caía a zoom mundial.
+    g = gdf.geometry.iloc[0]
+    m.location = [g.centroid.y, g.centroid.x]
+    m.options["zoom"] = _calc_zoom(gdf)
 
 def _polygonize_mask(mask, bounds_wgs84, src_crs="EPSG:4326"):
     """Poligoniza una máscara booleana → GeoDataFrame con la unión de las
