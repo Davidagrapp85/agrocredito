@@ -36,15 +36,30 @@ def _init_gee():
     if _GEE_INITIALIZED:
         return
 
+    import os
     import streamlit as st
 
-    sa_json = st.secrets.get("gee", {}).get("service_account_json")
+    try:
+        gee_cfg = st.secrets.get("gee", {})
+    except Exception:
+        gee_cfg = {}
+    sa_json = gee_cfg.get("service_account_json")
+
+    # Sin cuenta de servicio ni credenciales locales, falla de inmediato.
+    # Si no, ee.Initialize() busca credenciales por defecto del host y puede
+    # tardar más de un minuto en rendirse (p. ej. en Streamlit Cloud).
+    if not sa_json and not os.path.exists(ee.oauth.get_credentials_path()):
+        raise RuntimeError(
+            "No se encontraron credenciales GEE. "
+            "Añade [gee] service_account_json en los Secrets de Streamlit Cloud, "
+            "o ejecuta `earthengine authenticate` localmente."
+        )
     # Proyecto GCP/Earth Engine: configurable por secrets (el cliente usa el suyo
     # sin tocar código). Prioridad: [gee] project → project dentro del JSON → default.
-    proj = st.secrets.get("gee", {}).get("project") or GEE_PROJECT
+    proj = gee_cfg.get("project") or GEE_PROJECT
     if sa_json:
         sa_dict = json.loads(sa_json) if isinstance(sa_json, str) else dict(sa_json)
-        proj = st.secrets.get("gee", {}).get("project") or sa_dict.get("project_id") or GEE_PROJECT
+        proj = gee_cfg.get("project") or sa_dict.get("project_id") or GEE_PROJECT
         credentials = ee.ServiceAccountCredentials(
             email=sa_dict["client_email"],
             key_data=json.dumps(sa_dict),
