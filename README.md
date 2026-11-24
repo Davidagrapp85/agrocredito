@@ -34,8 +34,6 @@ Exporta reportes en PDF para el comité de crédito.
 
 ## Mi rol
 
-<!-- TODO David: confirmar o ajustar esta sección antes de hacer público el repo. -->
-
 - Contraparte de Agrapp en el proyecto con AXA Climate y CGAP.
 - Entregué los datos operativos: loan tape, reportes de portafolio y metodología de crédito y SARLAFT.
 - Revisé los entregables y prioricé la retroalimentación de la app (jun-2026).
