@@ -24,6 +24,7 @@ from rasterio.merge import merge
 from rasterio.transform import from_bounds
 import geopandas as gpd
 from PIL import Image
+from utils.map_view import zoom_for_bounds
 import matplotlib
 import matplotlib.colors as mcolors
 
@@ -273,9 +274,8 @@ def build_terrain_maps(gdf_predio: gpd.GeoDataFrame, terrain: dict) -> dict:
     center = [geom.centroid.y, geom.centroid.x]
 
     def _base():
-        m = folium.Map(location=center, zoom_start=16, tiles="Esri.WorldImagery")
+        m = folium.Map(location=center, zoom_start=zoom_for_bounds(bx_fit), tiles="Esri.WorldImagery")
         Fullscreen().add_to(m)
-        m.fit_bounds(bx_fit)
         return m
 
     def _add_outline(m):

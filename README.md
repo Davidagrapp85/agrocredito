@@ -20,6 +20,18 @@ La validación era manual y no usaba datos climáticos. El proyecto buscó respo
 
 Exporta reportes en PDF para el comité de crédito.
 
+## Cómo se ve
+
+| Ingreso del predio | Identificación catastral |
+|---|---|
+| ![Pantalla de inicio: cultivo, método de polígono y coordenadas](docs/img/00-portada.png) | ![Predio identificado con código catastral, municipio, área y mapa satelital](docs/img/01-inicio-predio.png) |
+
+| Análisis del terreno | Infraestructura productiva |
+|---|---|
+| ![Elevación y pendiente del predio sobre imagen satelital](docs/img/02-terreno.png) | ![Distancia al centro urbano y a la vía más cercana, con semáforo](docs/img/03-infraestructura.png) |
+
+> Capturas del modo demo: el predio y el catastro son de ejemplo.
+
 ## Mi rol
 
 <!-- TODO David: confirmar o ajustar esta sección antes de hacer público el repo. -->

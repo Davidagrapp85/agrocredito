@@ -10,8 +10,10 @@ APIs utilizadas (gratuitas, sin API key):
   - OSRM          → routing por carretera (router.project-osrm.org)
 """
 
+import json
 import time
 import warnings
+from pathlib import Path
 import requests
 import urllib3
 import polyline as _polyline
@@ -21,21 +23,44 @@ import geopandas as gpd
 from shapely.geometry import Point, LineString
 
 # ── Parámetros ────────────────────────────────────────────────────────────────
+# Orden por fiabilidad medida (nov-2026); el primero que responda gana.
 OVERPASS_URLS       = (
+    "https://overpass.private.coffee/api/interpreter",
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
 )
+TIMEOUT_OVERPASS_SEG = 20
+# Tope total por consulta: si los servidores públicos no responden en este
+# tiempo, el indicador queda "no disponible" en lugar de bloquear la app.
+PRESUPUESTO_OVERPASS_SEG = 30
 OSRM_URL            = "http://router.project-osrm.org/route/v1/driving"
 
 RADIO_BUSQUEDA_KM   = 80
 N_CANDIDATOS        = 5
 PAUSA_OSRM_SEG      = 0.5
-PAUSA_OVERPASS_SEG  = 5
-REINTENTOS_OVERPASS = 3
+PAUSA_OVERPASS_SEG  = 2
+REINTENTOS_OVERPASS = 2
 RADIO_CARRETERA_KM  = 5
 
 HIGHWAY_TYPES = "motorway|trunk|primary|secondary|tertiary|unclassified|residential|track"
+
+# ── Modo demo: resultados precalculados ─────────────────────────────────────
+# Los servidores públicos de Overpass fallan con frecuencia. En modo demo
+# (sin base de datos) los predios de ejemplo usan distancias calculadas una
+# vez con datos reales de OSM/OSRM (datos/infra_demo.json).
+_INFRA_DEMO_PATH = Path(__file__).resolve().parent.parent / "datos" / "infra_demo.json"
+
+
+def _infra_demo(lat: float, lon: float, clave: str):
+    try:
+        from utils.postgis_client import USE_REAL_DB
+        if USE_REAL_DB or not _INFRA_DEMO_PATH.exists():
+            return None
+        datos = json.loads(_INFRA_DEMO_PATH.read_text(encoding="utf-8"))
+        return datos.get(f"{lat:.4f},{lon:.4f}", {}).get(clave)
+    except Exception:
+        return None
+
 
 # ── Helper Overpass con reintentos ────────────────────────────────────────────
 
@@ -52,11 +77,15 @@ def _overpass_get(query: str) -> list:
         "Accept":     "application/json",
     }
     ultimo_error = None
+    limite = time.monotonic() + PRESUPUESTO_OVERPASS_SEG
     for intento in range(REINTENTOS_OVERPASS):
         for url in OVERPASS_URLS:
+            restante = limite - time.monotonic()
+            if restante < 3:
+                raise RuntimeError(f"Overpass no disponible (tiempo agotado): {ultimo_error}")
             try:
-                resp = requests.get(url, params={"data": query},
-                                    headers=headers, timeout=60)
+                resp = requests.get(url, params={"data": query}, headers=headers,
+                                    timeout=min(TIMEOUT_OVERPASS_SEG, restante))
             except requests.exceptions.RequestException as e:
                 ultimo_error = e
                 continue
@@ -76,7 +105,7 @@ def _overpass_get(query: str) -> list:
 def _get_centros_urbanos(lat: float, lon: float) -> list[dict]:
     radio_m = RADIO_BUSQUEDA_KM * 1000
     query = f"""
-    [out:json][timeout:60];
+    [out:json][timeout:25];
     (
       node["place"~"^(city|town|village)$"]
          (around:{radio_m},{lat},{lon});
@@ -132,12 +161,13 @@ def get_distancia_centro_urbano(lat: float, lon: float) -> dict | None:
         coords          list    polyline de la ruta [(lat,lon), ...]
     Retorna None si no se encuentra ruta.
     """
+    demo = _infra_demo(lat, lon, "centro")
+    if demo is not None:
+        return demo
+
     candidatos = _get_centros_urbanos(lat, lon)
     if not candidatos:
         return None
-
-    # Pausa entre consulta Overpass y llamadas OSRM
-    time.sleep(PAUSA_OVERPASS_SEG)
 
     mejor = None
     for c in candidatos:
@@ -181,9 +211,13 @@ def get_distancia_via(lat: float, lon: float) -> dict | None:
         distancia_km    float   km
     Retorna None si no se encuentra vía.
     """
+    demo = _infra_demo(lat, lon, "via")
+    if demo is not None:
+        return demo
+
     radio_m = RADIO_CARRETERA_KM * 1000
     query = f"""
-    [out:json][timeout:60];
+    [out:json][timeout:25];
     way["highway"~"^({HIGHWAY_TYPES})$"]
       (around:{radio_m},{lat},{lon});
     out geom;
@@ -192,42 +226,30 @@ def get_distancia_via(lat: float, lon: float) -> dict | None:
     if not elementos:
         return None
 
-    predio_wgs = Point(lon, lat)
-    predio_m = (
-        gpd.GeoDataFrame(geometry=[predio_wgs], crs="EPSG:4326")
-        .to_crs("EPSG:3857")
-        .geometry.iloc[0]
-    )
+    # Una sola reproyección para todas las vías (antes era una por vía, lento
+    # en zonas con miles de calles).
+    vias = [e for e in elementos if len(e.get("geometry", [])) >= 2]
+    if not vias:
+        return None
+    lineas = gpd.GeoSeries(
+        [LineString([(g["lon"], g["lat"]) for g in e["geometry"]]) for e in vias],
+        crs="EPSG:4326",
+    ).to_crs("EPSG:3857")
+    predio_m = gpd.GeoSeries([Point(lon, lat)], crs="EPSG:4326").to_crs("EPSG:3857").iloc[0]
 
-    mejor_dist = float("inf")
-    mejor_via  = None
+    distancias = lineas.distance(predio_m)
+    i = int(distancias.values.argmin())
+    mejor_dist = float(distancias.iloc[i])
+    linea_m = lineas.iloc[i]
+    nearest_m = linea_m.interpolate(linea_m.project(predio_m))
+    nearest_wgs = gpd.GeoSeries([nearest_m], crs="EPSG:3857").to_crs("EPSG:4326").iloc[0]
+    tags = vias[i].get("tags", {})
 
-    for elem in elementos:
-        nodos = elem.get("geometry", [])
-        if len(nodos) < 2:
-            continue
-        coords = [(g["lon"], g["lat"]) for g in nodos]
-        linea_m = (
-            gpd.GeoDataFrame(geometry=[LineString(coords)], crs="EPSG:4326")
-            .to_crs("EPSG:3857")
-            .geometry.iloc[0]
-        )
-        dist = predio_m.distance(linea_m)
-        if dist < mejor_dist:
-            mejor_dist = dist
-            nearest_m  = linea_m.interpolate(linea_m.project(predio_m))
-            nearest_wgs = (
-                gpd.GeoDataFrame(geometry=[nearest_m], crs="EPSG:3857")
-                .to_crs("EPSG:4326")
-                .geometry.iloc[0]
-            )
-            mejor_via  = {
-                "nombre":      elem.get("tags", {}).get("name", "Sin nombre"),
-                "tipo":        elem.get("tags", {}).get("highway", ""),
-                "distancia_m":  round(dist, 1),
-                "distancia_km": round(dist / 1000, 3),
-                "nearest_lat":  nearest_wgs.y,
-                "nearest_lon":  nearest_wgs.x,
-            }
-
-    return mejor_via
+    return {
+        "nombre":       tags.get("name", "Sin nombre"),
+        "tipo":         tags.get("highway", ""),
+        "distancia_m":  round(mejor_dist, 1),
+        "distancia_km": round(mejor_dist / 1000, 3),
+        "nearest_lat":  nearest_wgs.y,
+        "nearest_lon":  nearest_wgs.x,
+    }

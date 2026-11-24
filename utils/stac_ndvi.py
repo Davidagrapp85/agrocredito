@@ -35,6 +35,7 @@ import matplotlib
 import matplotlib.colors as mcolors
 import folium
 from folium.plugins import Fullscreen
+from utils.map_view import zoom_for_bounds
 
 warnings.filterwarnings("ignore")
 
@@ -213,8 +214,8 @@ def _build_maps(gdf_predio: gpd.GeoDataFrame, ndvi_p25: np.ndarray,
     ctr  = [gdf4.geometry.iloc[0].centroid.y, gdf4.geometry.iloc[0].centroid.x]
 
     def _base():
-        m = folium.Map(location=ctr, zoom_start=15, tiles="Esri.WorldImagery")
-        Fullscreen().add_to(m); m.fit_bounds(bx)
+        m = folium.Map(location=ctr, zoom_start=zoom_for_bounds(bx), tiles="Esri.WorldImagery")
+        Fullscreen().add_to(m)
         return m
 
     def _outline(m):

@@ -23,6 +23,7 @@ import numpy as np
 import requests
 import geopandas as gpd
 from PIL import Image
+from utils.map_view import zoom_for_bounds
 import matplotlib
 import matplotlib.colors as mcolors
 
@@ -230,9 +231,8 @@ def _build_ndvi_maps(gdf_predio, ndvi_arr, low_mask, ndvi_threshold, stats):
     center = [(b[1] + b[3]) / 2, (b[0] + b[2]) / 2]
 
     def _base():
-        m = folium.Map(location=center, zoom_start=15, tiles="Esri.WorldImagery")
+        m = folium.Map(location=center, zoom_start=zoom_for_bounds(bx), tiles="Esri.WorldImagery")
         Fullscreen().add_to(m)
-        m.fit_bounds(bx)
         return m
 
     def _outline(m):
